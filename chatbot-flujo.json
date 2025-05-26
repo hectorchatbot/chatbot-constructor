@@ -1,0 +1,63 @@
+[
+  {
+    "id": 1,
+    "type": "pregunta",
+    "content": "👋 ¡Hola! Bienvenido a SMART PLAGAS. ¿Cuál es tu nombre?",
+    "nextId": 2
+  },
+  {
+    "id": 2,
+    "type": "pregunta",
+    "content": "¿Qué servicio estás buscando?",
+    "nextId": 3
+  },
+  {
+    "id": 3,
+    "type": "condicional",
+    "content": "Selecciona el servicio que necesitas:",
+    "options": [
+      {
+        "text": "🐭 Control de Plagas",
+        "nextId": 4
+      },
+      {
+        "text": "📹 Cámaras de Seguridad",
+        "nextId": 5
+      },
+      {
+        "text": "🏊‍♂️ Piscinas",
+        "nextId": 6
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "type": "pregunta",
+    "content": "¿Qué tipo de plaga necesitas controlar?",
+    "nextId": 7
+  },
+  {
+    "id": 5,
+    "type": "pregunta",
+    "content": "¿Qué tipo de cámaras deseas instalar?",
+    "nextId": 7
+  },
+  {
+    "id": 6,
+    "type": "pregunta",
+    "content": "¿Qué tipo de mantención necesitas para tu piscina?",
+    "nextId": 7
+  },
+  {
+    "id": 7,
+    "type": "pregunta",
+    "content": "Por favor, indícanos tu correo electrónico para enviarte la cotización.",
+    "nextId": 8
+  },
+  {
+    "id": 8,
+    "type": "respuesta",
+    "content": "🪤 ¡Gracias por solicitar el servicio! En breve recibirás tu cotización personalizada por WhatsApp. 📞 Atención urgente: +56 9 5816 6055",
+    "nextId": null
+  }
+]

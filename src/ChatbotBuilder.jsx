@@ -1,187 +1,271 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function ChatbotBuilder() {
-  const [blocks, setBlocks] = useState([]);
-  const [conversation, setConversation] = useState([]);
+  const [blocks, setBlocks] = useState(() => {
+    try {
+      const saved = localStorage.getItem('chatbot_blocks');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [currentBlock, setCurrentBlock] = useState(null);
+  const [showSimulation, setShowSimulation] = useState(false);
+  const [userInput, setUserInput] = useState('');
+  const [variables, setVariables] = useState({});
+
+  useEffect(() => {
+    localStorage.setItem('chatbot_blocks', JSON.stringify(blocks));
+  }, [blocks]);
 
   const addBlock = (type) => {
     const newBlock = {
-      id: blocks.length + 1,
-      type,
+      id: Date.now(),
+      type: type,
       content: '',
-      options: type === 'condicional' ? [{ text: '', nextId: null }] : [],
       nextId: null,
+      variableName: type === 'pregunta' || type === 'condicional' ? '' : null,
+      options: type === 'condicional' ? [] : undefined
     };
     setBlocks([...blocks, newBlock]);
   };
 
-  const deleteBlock = (id) => {
-    const updatedBlocks = blocks
-      .filter((b) => b.id !== id)
-      .map((b) => ({
-        ...b,
-        nextId: b.nextId === id ? null : b.nextId,
-        options: b.options?.map(opt => ({ ...opt, nextId: opt.nextId === id ? null : opt.nextId })) || []
-      }));
-    setBlocks(updatedBlocks);
+  const handleContentChange = (id, value) => {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, content: value } : b))
+    );
   };
 
-  const updateBlock = (id, content) => {
-    if (content.trim() === '') return;
-    setBlocks(blocks.map((b) => (b.id === id ? { ...b, content } : b)));
+  const handleVariableNameChange = (id, value) => {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, variableName: value } : b))
+    );
   };
 
-  const updateNext = (id, nextId) => {
-    setBlocks(
-      blocks.map((b) =>
-        b.id === id ? { ...b, nextId: nextId === '' ? null : Number(nextId) } : b
+  const handleOptionChange = (id, index, key, value) => {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id === id) {
+          const newOptions = [...b.options];
+          newOptions[index] = { ...newOptions[index], [key]: value };
+          return { ...b, options: newOptions };
+        }
+        return b;
+      })
+    );
+  };
+
+  const addOption = (id) => {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === id ? { ...b, options: [...(b.options || []), { label: '', nextId: null }] } : b
       )
     );
   };
 
-  const updateOption = (blockId, index, key, value) => {
-    setBlocks(blocks.map(b => {
-      if (b.id === blockId) {
-        const options = [...b.options];
-        if (key === 'text' && value.trim() === '') return b;
-        options[index][key] = key === 'nextId' ? (value === '' ? null : Number(value)) : value;
-        return { ...b, options };
-      }
-      return b;
-    }));
-  };
-
-  const addOption = (blockId) => {
-    setBlocks(blocks.map(b => {
-      if (b.id === blockId) {
-        return { ...b, options: [...b.options, { text: '', nextId: null }] };
-      }
-      return b;
-    }));
-  };
-
-  const simulateConversation = () => {
-    const visited = new Set();
-    const conv = [];
-    let current = blocks[0];
-    while (current) {
-      if (visited.has(current.id)) break;
-      visited.add(current.id);
-      conv.push(current);
-      if (current.type === 'condicional' && current.options.length > 0) {
-        current = blocks.find(b => b.id === current.options[0].nextId);
-      } else {
-        current = blocks.find(b => b.id === current.nextId);
-      }
-    }
-    setConversation(conv);
-  };
-
   const exportJSON = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(blocks, null, 2));
-    const dlAnchor = document.createElement('a');
-    dlAnchor.setAttribute('href', dataStr);
-    dlAnchor.setAttribute('download', 'chatbot-flujo.json');
-    document.body.appendChild(dlAnchor);
-    dlAnchor.click();
-    dlAnchor.remove();
+    const link = document.createElement('a');
+    link.setAttribute('href', dataStr);
+    link.setAttribute('download', 'chatbot-flujo.json');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const importJSON = (event) => {
-    const fileReader = new FileReader();
-    fileReader.onload = (e) => {
+  const importJSON = (e) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
       try {
-        const imported = JSON.parse(e.target.result);
-        if (!Array.isArray(imported) || !imported.every(b => b.id && b.type)) {
-          throw new Error('Formato inválido');
-        }
+        const imported = JSON.parse(ev.target.result);
+        if (!Array.isArray(imported)) throw new Error('Formato inválido');
         setBlocks(imported);
-      } catch (error) {
-        alert('Error al importar el archivo JSON. Asegúrese de que el formato sea válido.');
+      } catch (err) {
+        alert('Error al importar JSON: ' + err.message);
       }
     };
-    fileReader.readAsText(event.target.files[0]);
+    reader.readAsText(e.target.files[0]);
+  };
+
+  const startSimulation = () => {
+    if (blocks.length > 0) {
+      setVariables({});
+      setUserInput('');
+      setCurrentBlock(blocks[0]);
+      setShowSimulation(true);
+    }
+  };
+
+  const goToNextBlock = () => {
+    if (!currentBlock) return;
+
+    let next = null;
+
+    if (currentBlock.type === 'pregunta') {
+      if (currentBlock.variableName) {
+        setVariables((prev) => ({ ...prev, [currentBlock.variableName]: userInput }));
+      }
+      next = blocks.find((b) => b.id === currentBlock.nextId);
+    }
+
+    if (currentBlock.type === 'condicional') {
+      if (currentBlock.variableName) {
+        setVariables((prev) => ({ ...prev, [currentBlock.variableName]: userInput }));
+      }
+      const option = currentBlock.options.find((opt) => opt.label === userInput);
+      if (option && option.nextId) {
+        next = blocks.find((b) => b.id === option.nextId);
+      }
+    }
+
+    if (currentBlock.type === 'mensaje' || currentBlock.type === 'respuesta') {
+      next = blocks.find((b) => b.id === currentBlock.nextId);
+    }
+
+    if (next) {
+      setUserInput('');
+      setCurrentBlock(next);
+    } else {
+      alert('No hay siguiente bloque definido.');
+    }
+  };
+
+  const renderContent = (text) => {
+    return text.replace(/\{(\w+)\}/g, (_, key) => variables[key] || '');
+  };
+
+  const getShortId = (id) => id.toString().slice(-4);
+
+  const resolveShortId = (shortId) => {
+    const match = blocks.find((b) => getShortId(b.id) === shortId);
+    return match ? match.id : null;
   };
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Constructor de Chatbot</h2>
-      <div style={{ marginBottom: 10 }}>
-        <button onClick={() => addBlock('pregunta')}>Agregar Pregunta</button>
-        <button onClick={() => addBlock('respuesta')}>Agregar Respuesta</button>
-        <button onClick={() => addBlock('condicional')}>Agregar Condicional</button>
-        <button style={{ backgroundColor: 'green', color: 'white', marginLeft: 10 }} onClick={exportJSON}>Exportar JSON</button>
-        <label style={{ backgroundColor: 'orange', color: 'white', marginLeft: 10, padding: '5px 10px', cursor: 'pointer' }}>
-          Importar JSON
-          <input type="file" accept="application/json" style={{ display: 'none' }} onChange={importJSON} />
-        </label>
-        <button style={{ backgroundColor: 'blue', color: 'white', marginLeft: 10 }} onClick={simulateConversation}>Simular Conversación</button>
+    <div style={{ padding: '20px' }}>
+      <h2>🧠 Constructor de Chatbot</h2>
+
+      <div style={{ marginBottom: '10px' }}>
+        <button onClick={() => addBlock('pregunta')}>❓ Agregar Pregunta</button>
+        <button onClick={() => addBlock('respuesta')}>💬 Agregar Respuesta</button>
+        <button onClick={() => addBlock('condicional')}>🔀 Agregar Condicional</button>
+        <button onClick={() => addBlock('mensaje')}>📝 Agregar Mensaje</button>
+        <button onClick={exportJSON} style={{ backgroundColor: 'green', color: 'white' }}>📤 Exportar JSON</button>
+        <input type="file" accept="application/json" onChange={importJSON} style={{ backgroundColor: 'orange', color: 'black' }} />
+        <button onClick={startSimulation} style={{ backgroundColor: 'blue', color: 'white' }}>▶ Simular Conversación</button>
       </div>
-      <div>
-        {blocks.map((block) => (
-          <div key={block.id} style={{ marginBottom: 10, padding: 10, border: '1px solid black' }}>
-            <strong>{block.type.toUpperCase()}</strong>
-            <br />
-            <textarea
-              rows="2"
-              value={block.content}
-              onChange={(e) => updateBlock(block.id, e.target.value)}
-              style={{ width: '100%' }}
-            ></textarea>
-            <br />
-            {block.type === 'condicional' ? (
-              <div>
-                {block.options.map((opt, i) => (
-                  <div key={i} style={{ marginBottom: 5 }}>
-                    Opción {i + 1}:{' '}
-                    <input
-                      type="text"
-                      value={opt.text}
-                      onChange={(e) => updateOption(block.id, i, 'text', e.target.value)}
-                    />{' '}
-                    Ir a:{' '}
-                    <select
-                      value={opt.nextId ?? ''}
-                      onChange={(e) => updateOption(block.id, i, 'nextId', e.target.value)}
-                    >
-                      <option value=''>ninguno</option>
-                      {blocks.filter((b) => b.id !== block.id).map((b) => (
-                        <option key={b.id} value={b.id}>{b.type} #{b.id}</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-                <button onClick={() => addOption(block.id)}>Agregar Opción</button>
-              </div>
-            ) : (
-              <>
-                Ir al bloque siguiente:{' '}
-                <select
-                  value={block.nextId ?? ''}
-                  onChange={(e) => updateNext(block.id, e.target.value)}
-                >
-                  <option value=''>ninguno</option>
-                  {blocks.filter((b) => b.id !== block.id).map((b) => (
-                    <option key={b.id} value={b.id}>{b.type} #{b.id}</option>
-                  ))}
-                </select>
-              </>
-            )}
-            <br />
-            <button style={{ backgroundColor: 'red', color: 'white', marginTop: 5 }} onClick={() => deleteBlock(block.id)}>
-              Eliminar Bloque
-            </button>
-          </div>
-        ))}
-      </div>
-      <div style={{ backgroundColor: '#eee', padding: 10, marginTop: 20 }}>
-        <h3>Simulación de Conversación:</h3>
-        {conversation.map((block, index) => (
-          <div key={index}>
-            👉 {block.content}
-          </div>
-        ))}
-      </div>
+
+      {!showSimulation && blocks.map((block) => (
+        <div key={block.id} style={{ marginBottom: '10px', border: '1px solid #ccc', padding: '10px' }}>
+          <p><strong>🆔 ID:</strong> {getShortId(block.id)} <span style={{ fontSize: '0.8em', color: '#777' }}>(completo: {block.id})</span></p>
+          <strong>Tipo:</strong> {block.type}<br />
+          <textarea
+            placeholder={`Contenido del ${block.type}`}
+            value={block.content}
+            onChange={(e) => handleContentChange(block.id, e.target.value)}
+            style={{ width: '100%', height: '60px', marginTop: '5px' }}
+          />
+          {(block.type === 'pregunta' || block.type === 'condicional') && (
+            <input
+              type="text"
+              placeholder="Nombre de variable (ej: nombre, zona...)"
+              value={block.variableName || ''}
+              onChange={(e) => handleVariableNameChange(block.id, e.target.value)}
+              style={{ width: '100%', marginTop: '5px' }}
+            />
+          )}
+          {block.type === 'condicional' && (
+            <div>
+              <strong>Opciones:</strong>
+              {block.options.map((opt, idx) => (
+                <div key={idx}>
+                  <input
+                    type="text"
+                    placeholder="Opción"
+                    value={opt.label}
+                    onChange={(e) => handleOptionChange(block.id, idx, 'label', e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="ID siguiente"
+                    value={opt.nextId ? getShortId(opt.nextId) : ''}
+                    onChange={(e) => {
+                      const fullId = resolveShortId(e.target.value);
+                      handleOptionChange(block.id, idx, 'nextId', fullId);
+                    }}
+                  />
+                </div>
+              ))}
+              <button onClick={() => addOption(block.id)}>➕ Agregar Opción</button>
+            </div>
+          )}
+          <input
+            type="number"
+            placeholder={`ID del siguiente bloque (ej: ${getShortId(block.id)})`}
+            value={block.nextId ? getShortId(block.nextId) : ''}
+            onChange={(e) => {
+              const shortId = e.target.value;
+              const fullId = resolveShortId(shortId);
+              setBlocks((prev) =>
+                prev.map((b) => (b.id === block.id ? { ...b, nextId: fullId } : b))
+              );
+            }}
+            style={{ marginTop: '5px', width: '100%' }}
+          />
+          {block.nextId && (
+            <p style={{ marginTop: '5px', color: '#555' }}>
+              ➡ Conecta con el bloque ID: <strong>{getShortId(block.nextId)}</strong>
+            </p>
+          )}
+          <button
+            onClick={() => setBlocks((prev) => prev.filter((b) => b.id !== block.id))}
+            style={{ marginTop: '10px', backgroundColor: 'crimson', color: 'white' }}
+          >
+            🗑 Eliminar Bloque
+          </button>
+        </div>
+      ))}
+
+      {showSimulation && currentBlock && (
+        <div style={{ padding: '20px', border: '2px dashed #888', backgroundColor: '#f9f9f9' }}>
+          <h3>💬 Simulación de conversación</h3>
+          <p><strong>Tipo:</strong> {currentBlock.type}</p>
+          <p>{renderContent(currentBlock.content)}</p>
+          {currentBlock.type === 'condicional' && currentBlock.options.length > 0 ? (
+            <div>
+              {currentBlock.options.map((opt, idx) => (
+                <div key={idx}>
+                  <button
+                    onClick={() => {
+                      setUserInput(opt.label);
+                      goToNextBlock();
+                    }}
+                    style={{ display: 'block', marginBottom: '5px' }}
+                  >
+                    {opt.label}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (currentBlock.type === 'pregunta') ? (
+            <div>
+              <input
+                type="text"
+                placeholder="Escribe tu respuesta..."
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                style={{ width: '100%', marginTop: '10px', padding: '5px' }}
+              />
+              <button onClick={goToNextBlock} style={{ marginTop: '10px' }}>➡ Siguiente</button>
+            </div>
+          ) : (
+            <button onClick={goToNextBlock} style={{ marginTop: '10px' }}>➡ Siguiente</button>
+          )}
+          <button onClick={() => setShowSimulation(false)} style={{ marginTop: '10px', marginLeft: '10px' }}>🔁 Volver al Constructor</button>
+        </div>
+      )}
     </div>
   );
 }
